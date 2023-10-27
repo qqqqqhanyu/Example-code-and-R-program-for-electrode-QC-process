@@ -1,0 +1,327 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(ggplot2)
+library(pheatmap)
+```
+
+
+### The raw data, including all of the 10 scans. Right now, this part takes the most of time, because the input dataset could have different structures and file name. Thereby, we have to modify the code once we have the new data.
+```{r,message=F}
+electrodes1 <- read_excel("electrodes.xlsx", sheet = "Batch 1")
+electrodes2 <- read_excel("electrodes.xlsx", sheet = "Batch 2")
+electrodes3 <- read_excel("electrodes.xlsx", sheet = "Batch 3")
+colnames(electrodes1) = paste0(rep(c("V","A"),120),rep(rep(1:10,each = 2),12))
+colnames(electrodes2) = paste0(rep(c("V","A"),120),rep(rep(1:10,each = 2),12))
+colnames(electrodes3) = paste0(rep(c("V","A"),120),rep(rep(1:10,each = 2),12))
+electrodes = cbind(electrodes1,electrodes2,electrodes3)
+my_list = list()
+n = ncol(electrodes)/20
+for (i in 1:n) {
+  my_list[[i]] = electrodes[,(20*(i-1)+1):(20*i)]
+}
+```
+
+### Sample plot, visualize the last three scans of the first electrode
+```{r}
+data = my_list[[1]]
+visualize_data = data.frame(A = c(data$A8,data$A9,data$A10),V =rep(data$V1,3),sample = as.character(rep(8:10,each = 320)))
+p = ggplot(visualize_data)+geom_point(aes(V,A,color = sample),show.legend = T)+ylab("Current (muA)")+xlab("Potential (V)")
+p
+```
+
+### Sample plot of ABC
+```{r}
+my_text1 = element_text(size = 20)
+my_text2 = element_text(size = 20,face = "bold")
+data = my_list[[1]]
+data1 = data.frame(A1 = c(data$A8[1:161]),A2 = c(data$A8[1],data$A8[320:161]),V= data$V1[1:161])
+visualize_data = data.frame(A = c(data$A8),V =data$V1)
+p = ggplot(visualize_data)+geom_point(aes(V,A),col = "red")+ylab("Current (muA)")+xlab("Potential (V)")+geom_ribbon(data=data1, aes(ymin=A1,ymax=A2,x = V), fill="pink", alpha=0.5)+theme_bw()+theme(axis.text.x = my_text1)+theme(axis.title.x = my_text2)+theme(axis.title.y = my_text2)+theme(axis.text.y = my_text1)
+p
+```
+
+### Replicate variance test, in which, we measure the varibility of the last three scans by comparing the average of last three scans with the average of last scans. More details were discussed in section 2.3.2
+
+## Calculate the area under curve of the average of last three scans
+```{r}
+my_check = function(data){
+  subdata = data[,15:20]
+  average = (subdata$A8+subdata$A9+subdata$A10)/3
+  y1 = average[1:161]
+  y2 = average[320:161]
+  y2 = c(y1[1],y2)
+  x = data$V1[1:161]
+  average_area = sum(abs(diff(x))*abs(y2[1:160]-y1[1:160]))
+  visualize_data = data.frame(A = c(data$A8,data$A9,data$A10,average),V =rep(data$V1,4),sample = as.character(rep(c(8:10,"average"),each = 320)))
+  p = ggplot(visualize_data)+geom_point(aes(V,A,color = sample),show.legend = T)+ylab("Current (muA)")+xlab("Potential (V)")
+  V = c(subdata$V8,subdata$V8[1])
+  area = numeric(0)
+  for (i in 1:3) {
+    A_1 = as.numeric(subdata[,2*i])
+    area[i] = sum(abs(diff(V))*abs(A_1-average))
+  }
+ result = list()
+ result[[1]] = p
+ result[[2]] = area
+ result[[3]] = average
+ result[[4]] = average_area
+ return(result)
+}
+a = my_check(my_list[[1]])
+a[[1]]
+a[[2]]
+##a[[3]]
+a[[4]]
+a[[2]]/a[[4]]
+```
+
+
+### Result of the replicate variance
+```{r}
+n = length(my_list)
+final_result = list()
+table = matrix(0,ncol = 4,nrow = n)
+table[,1] = 1:n
+for (j in 1:n) {
+  final_result[[j]] = my_check(my_list[[j]]) 
+  table[j,2:4] = final_result[[j]][[2]]/final_result[[j]][[4]]
+}
+
+table = as.data.frame(table)
+colnames(table) = c("sample id","rep 8","rep 9","rep 10")
+write.csv(table,"ratio_table_pt_lig_yifan.csv") ### Output the replicate variance test result to a excel file if needed
+```
+
+
+## Convergence test: check whether the electrode output can converage to a stable result after sufficient number of replicates. More details were introduced in section 2.3.1.
+```{r}
+data = my_list[[1]]
+my_delta_abc = function(data){
+  n = ncol(data)/2
+  ratio = numeric(0)
+  V = data$V1
+  V = c(V,V[1])
+  for (i in 1:(n-1)) {
+    A_1 = data[,2*i]
+    A_2 = data[,2*(i+1)]
+    ABC = sum(abs(diff(V))*abs(A_2-A_1))
+    y1 = A_1[1:161]
+    y2 = A_1[320:161]
+    y2 = c(y1[1],y2)
+    x = data$V1[1:161]
+    AUC = sum(abs(diff(x))*abs(y2[1:160]-y1[1:160]))
+    ratio[i] = ABC/AUC
+  }
+  #plot(1:9,ratio)
+  return(ratio)
+}
+FirstElectorde = my_delta_abc(data)
+```
+
+
+## Plot the convergence test result separatly by each electrode.
+```{r}
+result = matrix(0,n,9)
+for (j in 1:n) {
+  print(j)
+  my_ratio = my_delta_abc(my_list[[j]])
+  plot(1:9,my_ratio)
+  title(paste0("electrodes",j))
+  result[j,] = my_ratio
+}
+```
+
+## Converge test result visualization in one plot
+```{r}
+integer_breaks <- function(n = 10, ...) {
+  fxn <- function(x) {
+    breaks <- floor(pretty(x, n, ...))
+    names(breaks) <- attr(breaks, "labels")
+    breaks
+  }
+  return(fxn)
+}
+```
+
+
+```{r}
+vector_result = as.vector(t(result))
+ratio_data = data.frame(ratio = vector_result,id = rep(1:n,each = 9),iteration = rep(1:9,n))
+ratio_data$id = as.factor(ratio_data$id)
+ggplot(ratio_data)+aes(iteration,ratio,col=id)+geom_line()+xlab("Sweep")+ylab("Ratio")+geom_hline(yintercept = 0.05,slope = 0,lty = 2)+theme_bw()+theme(axis.text.x = my_text1)+theme(axis.title.x = my_text2)+theme(axis.title.y = my_text2)+theme(axis.text.y = my_text1)+scale_x_continuous(breaks=integer_breaks())#+theme(legend.position = "topright")
+```
+
+
+### Data reorganization: using the result of last scan to run clustering analysis. Suppose the replicate variance is large for majority of electrodes, we can use the average of last three scans to run the following analysis.
+```{r}
+n = length(my_list) ## n is the number of electrodes
+electrodes = my_list[[1]][,c(19,20)]
+for (i in 2:n) {
+  electrodes = cbind(electrodes,my_list[[i]][,c(19,20)])
+}
+electrodes = as.data.frame(electrodes)
+colnames(electrodes) = paste0(rep(c("V","A"),n),rep(1:n,each = 2))
+# write.csv(electrodes,"yifan pt lig.csv") #output the result from last scan to excel file if needed
+```
+
+### If we need to use the average of last three scans, run the following code. If not, just skip it.
+```{r}
+average_table = final_result[[1]][[3]]
+for (u in 2:n) {
+  average_table = cbind(average_table,final_result[[u]][[3]])
+}
+colnames(average_table) = paste0("A",1:n)
+electrodes[,2*(1:n)] = average_table
+```
+
+
+### Plot the average of last scan from every electrodes
+```{r}
+current = electrodes[,2*(1:n)]
+data = data.frame(V = electrodes$V1,current = rowMeans(current))
+p = ggplot(data)+geom_point(aes(V,current))+ylab("Current (muA)")+xlab("Potential (V)")
+p
+```
+```{r}
+ggplot(data)+geom_path(aes(V,current))+ylab("Current (muA)")+xlab("Potential (V)")+theme_bw()+theme(axis.text.x = my_text1)+theme(axis.title.x = my_text2)+theme(axis.title.y = my_text2) +theme(axis.text.y = my_text1)+theme(legend.text=my_text1)+guides(shape = guide_legend(override.aes = list(size = 15)))+theme(legend.title =my_text1)+theme(legend.position = c(0.8,0.2))
+```
+### Two different functions to visualize the data
+## Function 1: Plot two electrodes in one chart, and the yellow area represents the area between curves (ABC)
+```{r}
+my_visualize = function(i,j){
+  A_1 = electrodes[,2*i]
+  A_2 = electrodes[,2*j]
+  A_1 = as.data.frame(A_1)
+  A_2 = as.data.frame(A_2)
+  colnames(A_1) = "Current"
+  colnames(A_2) = "Current"
+  data = rbind(A_1,A_2)
+  data$sample = rep(c(i,j),each = 320)
+  data$sample = as.character(data$sample)
+  data$V = c(electrodes$V1,electrodes$V1)
+  data1 = cbind(A_1,A_2)
+  colnames(data1) = c("current1","current2")
+  data1$V = electrodes$V1
+  p = ggplot(data)+geom_point(aes(V,Current,color = sample),show.legend = T)+geom_ribbon(data=data1[1:161,], aes(ymin=current1,ymax=current2,x = V), fill="yellow", alpha=0.5)+geom_ribbon(data=data1[162:320,], aes(ymin=current1,ymax=current2,x= V), fill="yellow", alpha=0.5)+ylab("Current (muA)")+xlab("Potential (V)")
+}
+p = my_visualize(2,4)
+p+theme_bw()+theme(axis.text.x = my_text1)+theme(axis.title.x = my_text2)+theme(axis.title.y = my_text2)+theme(legend.position = "none")+theme(axis.text.y = my_text1)
+```
+
+## Function 2: The second function can plot multi curves (1,2,3...n) in one chart. 
+```{r}
+my_visualize2 = function(id){
+  current = numeric(0)
+  n = length(id)
+  for (i in 1:n) {
+    current = c(current,unlist(electrodes[,2*id[i]]))
+  }
+  data = data.frame(current = current)
+  data$sample = rep(id,each = 320)
+  data$sample = as.character(data$sample)
+  data$V = rep(electrodes$V1,n)
+  p = ggplot(data)+geom_point(aes(V,current,color = sample),show.legend = T)+ylab("Current (muA)")+xlab("Potential (V)")#+scale_y_continuous(breaks=c(-300,-150,0,150,300),limits = c(-350,350))
+  return(p)
+}
+id = c(1:3)
+my_visualize2(id)+theme_bw()+theme(axis.text.x = my_text1)+theme(axis.title.x = my_text2)+theme(axis.title.y = my_text2) +theme(axis.text.y = my_text1)+theme(legend.text=my_text1)+guides(shape = guide_legend(override.aes = list(size = 15)))+theme(legend.title =my_text1)+theme(legend.position = c(0.8,0.2))
+```
+
+
+### Discard the samples which does not pass converge test
+```{r}
+label = 1:n
+outlier = c(11) ### The outliers are the sameple which did not pass the previous test
+electrodes1 = electrodes ### Save a copy of full data
+electrodes = electrodes[,-c(outlier*2,outlier*2-1)]
+electrodes2 = electrodes ### Save a copy of reduced data
+n = ncol(electrodes)/2
+print(n)
+label = as.character(label[-outlier])
+```
+
+###calculate the pairwised SD between curves, and construct a distance matrix
+```{r}
+b = combn(n,2)
+label = 1:n
+attach(electrodes)
+V = c(V1,V1[1])
+my_dist = numeric(0)
+m = n*(n-1)/2
+for (i in 1:m) {
+  group_i = b[,i]
+  A_1 = electrodes[,2*group_i[1]]
+  A_2 = electrodes[,2*group_i[2]]
+  my_dist[i] = sum(abs(diff(V))*abs(A_2-A_1))
+}
+my_list = as.data.frame(t(combn(n,2)))
+attributes(my_dist)<- with(my_list,list(Size = n,Labels = label,Diag = F, Upper = F,method = "user"))
+class(my_dist) = "dist"
+```
+
+### Run hclust and visualize the final result. More details are visualized in 2.4
+## (1). The most basic plot
+```{r}
+try1 = hclust(my_dist)
+plot(try1)
+cl_members <- cutree(tree = try1, k = 10)
+rect.hclust(tree = try1, k = 10, which = 1:10, border = 1:10, cluster = cl_members)
+```
+
+## Find the clusters which have at least 3 elements
+```{r}
+table(cl_members)
+#electrodes = electrodes1 ### Recover the full data for visualizing purpose. 
+selected_group = cl_members[which(cl_members %in% which(table(cl_members)>=3))] 
+cluster_result = list()
+n = length(unique(selected_group))
+print(paste("Number of qualified clusters",n))
+for (i in 1:n) {
+  cluster_result[[i]] = names(subset(selected_group, selected_group == unique(selected_group)[i]))
+}
+cluster_result[[2]]
+my_visualize2(as.numeric(cluster_result[[7]]))+theme_bw()+theme(axis.text.x = my_text1)+theme(axis.title.x = my_text2)+theme(axis.title.y = my_text2) +theme(axis.text.y = my_text1)+theme(legend.text=my_text1)+guides(shape = guide_legend(override.aes = list(size = 15)))+theme(legend.title =my_text1)+scale_y_continuous(breaks=c(-300,-150,0,150,300),limits = c(-350,350))### Visualizing the electrodes by clusters
+```
+
+
+```{r}
+my_visualize2(as.numeric(cluster_result[[7]]))+theme_bw()+theme(legend.position = "none")+xlab("")+ylab("")+  theme(axis.text.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+scale_y_continuous(breaks=c(-300,-150,0,150,300),limits = c(-350,350))
+```
+
+
+### Ranking the clusters based on the electrodes inside. More details are introduced in section 2.5
+## Updating the heatmap by including the AUC information
+```{r}
+n = ncol(electrodes)/2
+electrodes = electrodes ### Using the reduced data to run ordering analysis
+calculate_AUC = function(A_1,V){
+    y1 = A_1[1:161]
+    y2 = A_1[320:161]
+    y2 = c(y1[1],y2) 
+    x = V[1:161]
+    AUC = sum(abs(diff(x))*abs(y2[1:160]-y1[1:160]))
+    return(AUC)
+}
+lastscan = numeric(0)
+for (i in 1:n) {
+  lastscan [i] = calculate_AUC(unlist(electrodes[,2*i]),electrodes$V1)
+  
+}
+heatmap_data = electrodes[,2*(1:n)]
+```
+
+
+```{r}
+colnames(heatmap_data) = label
+AUC = data.frame(ABC = lastscan)
+rownames(AUC) = colnames(heatmap_data)
+pheatmap(heatmap_data,cluster_rows = F, cutree_cols = 10,clustering_distance_cols = my_dist,annotation_col  = AUC)
+```
