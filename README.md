@@ -1,4 +1,4 @@
 # Hierarchical clustering as a quality control mechanism to reduce variation in laser inscribed graphene electronics
 Laser-inscribed graphene (LIG), initially developed for graphene supercapacitors, has found widespread use in the biological study, particularly in sensor fabrication applications. However, the significant batch-to-batch variation in LIG production introduces uncertainty that cannot be adequately tracked during the manufacturing process. The code ("electrode selection algorithm.Rmd") here is an open-source hierarchical clustering tool for QC analysis in LIG manufacturing for electrochemical sensing. The input of this program is the CV data as shown in the example data
 
-Additionally, the R program "read.Rmd" is designed for reorganized the original data file from the CV testing machine
+Additionally, the R program "read.Rmd" is designed to reorganize the original data file from the CV testing machine. More details see our community (https://zenodo.org/communities/qclig)
